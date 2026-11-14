@@ -1,0 +1,27 @@
+# Dữ liệu sinh ra bởi cmd/gen
+data/*
+!data/.gitkeep
+
+# Binary và file build
+/bin/
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.*
+*.coverprofile
+
+# Biến môi trường cục bộ
+.env
+.env.*
+
+# File cá nhân của Claude Code
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Editor và hệ điều hành
+.idea/
+.vscode/
+*.swp
+.DS_Store
