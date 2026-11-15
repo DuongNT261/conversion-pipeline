@@ -127,3 +127,98 @@ func (s *Store) InsertRows(ctx context.Context, jobID int64, rows []Row) (int64,
 	}
 	return inserted, nil
 }
+
+// PendingRow is the part of a PENDING row the relay puts in a message.
+type PendingRow struct {
+	ID    int64
+	JobID int64
+}
+
+// PublishPending is one relay round (REL-1 to REL-3). It locks up to limit
+// PENDING rows, calls publish while holding the lock, then marks them PUBLISHED
+// in the same transaction. If publish fails the transaction rolls back, so the
+// rows stay PENDING and are picked up again in the next round.
+//
+// SKIP LOCKED makes several relays safe (REL-4): each one skips the rows another
+// relay has locked instead of publishing them twice or waiting for them.
+func (s *Store) PublishPending(ctx context.Context, limit int, publish func(context.Context, []PendingRow) error) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() // no-op after a successful Commit
+
+	rows, err := lockPending(ctx, tx, limit)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	if err := publish(ctx, rows); err != nil {
+		return 0, fmt.Errorf("publish %d rows: %w", len(rows), err)
+	}
+	if err := markPublished(ctx, tx, rows); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+	return len(rows), nil
+}
+
+func lockPending(ctx context.Context, tx *sql.Tx, limit int) ([]PendingRow, error) {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT id, job_id FROM import_rows WHERE status = 'PENDING' ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED",
+		limit)
+	if err != nil {
+		return nil, fmt.Errorf("lock pending rows: %w", err)
+	}
+	defer rows.Close()
+
+	var pending []PendingRow
+	for rows.Next() {
+		var p PendingRow
+		if err := rows.Scan(&p.ID, &p.JobID); err != nil {
+			return nil, fmt.Errorf("scan pending row: %w", err)
+		}
+		pending = append(pending, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read pending rows: %w", err)
+	}
+	return pending, nil
+}
+
+func markPublished(ctx context.Context, tx *sql.Tx, rows []PendingRow) error {
+	placeholders := strings.Repeat("?, ", len(rows)-1) + "?"
+	args := make([]any, 0, len(rows))
+	for _, r := range rows {
+		args = append(args, r.ID)
+	}
+	_, err := tx.ExecContext(ctx,
+		"UPDATE import_rows SET status = 'PUBLISHED' WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return fmt.Errorf("mark %d rows published: %w", len(rows), err)
+	}
+	return nil
+}
+
+// FinishJobs moves PROCESSING jobs that have no PENDING or PUBLISHED row left
+// to DONE (REL-5). finished_at is written in UTC like every other time.
+func (s *Store) FinishJobs(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE import_jobs j SET j.status = ?, j.finished_at = UTC_TIMESTAMP()
+		 WHERE j.status = ? AND NOT EXISTS (
+		   SELECT 1 FROM import_rows r WHERE r.job_id = j.id AND r.status IN ('PENDING', 'PUBLISHED'))`,
+		JobDone, JobProcessing)
+	if err != nil {
+		return 0, fmt.Errorf("finish jobs: %w", err)
+	}
+	finished, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("finish jobs rows affected: %w", err)
+	}
+	return finished, nil
+}
