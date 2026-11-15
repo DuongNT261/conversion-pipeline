@@ -10,6 +10,8 @@ Mỗi dòng ghi một khái niệm đã hiểu và tự dùng được trong cod
 | 2026-11-15 | `internal/csvparse` | `time.Time`: `==` và `Equal`; MySQL `DATETIME` | `==` so cả múi giờ, `Equal` chỉ so thời điểm. `DATETIME` không lưu múi giờ; driver chuyển theo `loc` của DSN (mặc định UTC), nên mọi service phải dùng chung DSN |
 | 2026-11-15 | `internal/csvparse` | `strconv.ParseInt(s, base, bitSize)` | `base` là cơ số, `bitSize` là kiểu đích; tràn số thì trả `ErrRange`, không cắt bớt. **Cần ôn:** đọc `go doc` trước khi đoán tham số |
 | 2026-11-15 | `internal/csvparse` | Sentinel error, `%w`, `errors.Is` (chưa dùng) | Không so `err.Error()`; khai báo `var ErrX = errors.New(...)`, bọc bằng `%w`, kiểm tra bằng `errors.Is`. Sẽ gặp lại ở `store` (`ErrDuplicate`) |
+| 2026-11-15 | `compose.yaml`, `migrations/` | Healthcheck, `initdb.d`, bind mount | `--wait` chờ healthcheck; `mysqladmin ping -h 127.0.0.1` (TCP) để không pass sớm lúc init. `initdb.d` chỉ chạy khi volume trống. Bind mount tới thư mục chưa có thì Docker tạo bằng root |
+| 2026-11-15 | `wiremock/mappings/` | Priority, catch-all mapping | Status lạ (404) không có trong bảng phân loại thì nên biến thành lỗi rõ tên (`400 missing_idempotency_key`), để bug lộ ra ngay thay vì bị retry che đi |
 
 ## Câu hỏi còn mở
 
