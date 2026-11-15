@@ -7,7 +7,7 @@
 | Ngôn ngữ | Go 1.22 trở lên |
 | Công cụ cần có | Go, Docker (kèm Docker Compose v2). **Không dùng Makefile**: mọi thao tác chạy bằng lệnh `go` và `docker compose` |
 | Thời gian dự kiến | Khoảng 3 ngày làm việc |
-| Tài liệu đi kèm | `00-getting-started.md`: hướng dẫn bắt đầu và kế hoạch theo giai đoạn. `02-architecture-conversion-pipeline.md`: vì sao thiết kế như vậy. `03-coding-guidelines.md`: quy ước code. `CLAUDE.md`: hướng dẫn cho Claude Code |
+| Tài liệu đi kèm | `00-getting-started.md`: hướng dẫn bắt đầu và kế hoạch theo giai đoạn. `04-design-story.md`: câu chuyện bài toán thực tế và các sự cố production dẫn tới thiết kế này. `02-architecture-conversion-pipeline.md`: chi tiết kỹ thuật của từng quyết định. `03-coding-guidelines.md`: quy ước code. `CLAUDE.md`: hướng dẫn cho Claude Code |
 
 ---
 
@@ -493,6 +493,7 @@ conversion-pipeline/
 │   ├── 01-requirement-conversion-pipeline.md
 │   ├── 02-architecture-conversion-pipeline.md
 │   ├── 03-coding-guidelines.md
+│   ├── 04-design-story.md
 │   └── learning-log.md
 ├── cmd/
 │   ├── gen/              # sinh file CSV mẫu

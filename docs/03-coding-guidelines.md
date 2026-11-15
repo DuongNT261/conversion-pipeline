@@ -6,10 +6,8 @@
 
 ```mermaid
 flowchart LR
-    A["Đọc mục liên quan<br/>trong docs/01"] --> B["Tự nêu ý tưởng:<br/>vào, ra, chỗ có thể lỗi"]
-    B --> C["Claude nhận xét,<br/>chốt kế hoạch"]
-    C --> D["Viết code<br/>(tự viết hoặc nhờ Claude)"]
-    D --> E["Viết hoặc chạy test<br/>go test -race"]
+    A["Yêu cầu Claude viết phần cần làm<br/>(kèm mã yêu cầu trong docs/01)"] --> D["Claude viết code<br/>và giải thích"]
+    D --> E["Chạy test<br/>go test -race"]
     E --> F{"Hiểu từng dòng?"}
     F -->|"Chưa"| G["Hỏi lại đến khi hiểu"] --> F
     F -->|"Rồi"| H["Ghi learning-log"]

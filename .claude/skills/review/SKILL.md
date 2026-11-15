@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review code Go của người học (thay đổi chưa commit, hoặc file/function được chỉ định) theo docs/03-coding-guidelines.md. Gợi ý bằng câu hỏi trước, không tự sửa. Chỉ chạy khi người học gọi /review.
+description: Review code Go của người học (thay đổi chưa commit, hoặc file/function được chỉ định) theo docs/03-coding-guidelines.md. Nêu vấn đề kèm cách sửa cụ thể, không tự sửa file. Chỉ chạy khi người học gọi /review.
 argument-hint: "[file hoặc tên function]"
 disable-model-invocation: true
 allowed-tools: Bash(git status *) Bash(git diff *) Bash(gofmt *) Bash(go vet *) Bash(go test *)
@@ -47,15 +47,15 @@ gofmt: ...  |  go vet: ...  |  go test -race: ...
 ## Làm tốt
 - (1–3 ý cụ thể)
 
-## Cần xem lại
-1. [Nghiêm trọng | Nên sửa | Gợi ý] file.go:dòng: vấn đề là gì.
-   Câu hỏi gợi ý: ... (dẫn người học tự tìm ra cách sửa)
-
-## Câu hỏi kiểm tra hiểu bài
-- (1–2 câu về khái niệm xuất hiện trong đoạn code)
+## Cần sửa
+1. [Nghiêm trọng | Nên sửa | Gợi ý] file.go:dòng: vấn đề là gì, vì sao là vấn đề.
+   Cách sửa: ... (một câu, kèm đoạn code ngắn nếu giúp rõ hơn)
 ```
+
+Kết thúc bằng: "Phần nào chưa rõ thì bạn hỏi lại nhé."
 
 ## 5. Quy tắc
 
-- **Không đưa code sửa và không sửa file** trong lần trả lời này. Chỉ khi người học yêu cầu ("cho đáp án", "sửa giúp") ở tin nhắn sau mới đưa code.
+- **Đưa cách sửa cụ thể cho từng vấn đề**, nhưng **không tự sửa file**. Người học tự áp dụng để hiểu thay đổi. Chỉ sửa file khi người học yêu cầu rõ ("sửa giúp").
+- Người học gọi `/review gợi ý` thì thay "Cách sửa" bằng một câu hỏi gợi ý, để họ tự tìm cách sửa.
 - Không có vấn đề nghiêm trọng nào và kiểm tra tự động đều qua: đề xuất lệnh `git add` và một commit message theo quy ước ở `docs/03` mục 12. **Không tự commit.**
