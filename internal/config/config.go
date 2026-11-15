@@ -27,6 +27,11 @@ type Config struct {
 	PlatformURL          string
 	MaxAttempts          int
 	WorkerMaxOutstanding int
+
+	RedisAddr        string
+	CacheTTL         time.Duration
+	RateLimitEnabled bool
+	RateLimitRPS     int
 }
 
 // maxImportBatchSize keeps one batch INSERT under MySQL's limit of 65535
@@ -47,6 +52,7 @@ func Load() (Config, error) {
 		PubSubTopic:        stringOr("PUBSUB_TOPIC", "rows-to-process"),
 		PubSubSubscription: stringOr("PUBSUB_SUBSCRIPTION", "rows-worker"),
 		PlatformURL:        stringOr("PLATFORM_URL", "http://wiremock:8080"),
+		RedisAddr:          stringOr("REDIS_ADDR", "redis:6379"),
 	}
 	// A bad URL would only show up as failed calls on every row, so reject it now.
 	if u, err := url.Parse(cfg.PlatformURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -79,6 +85,15 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.WorkerMaxOutstanding, err = positiveInt("WORKER_MAX_OUTSTANDING", 100); err != nil {
+		return Config{}, err
+	}
+	if cfg.CacheTTL, err = positiveDuration("CACHE_TTL", 10*time.Minute); err != nil {
+		return Config{}, err
+	}
+	if cfg.RateLimitEnabled, err = boolOr("RATE_LIMIT_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.RateLimitRPS, err = positiveInt("RATE_LIMIT_RPS", 200); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
@@ -119,4 +134,17 @@ func positiveDuration(key string, fallback time.Duration) (time.Duration, error)
 		return 0, fmt.Errorf("%s must be a positive duration such as 1s, got %q", key, value)
 	}
 	return d, nil
+}
+
+// boolOr accepts what strconv.ParseBool accepts: true/false, 1/0, t/f.
+func boolOr(key string, fallback bool) (bool, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback, nil
+	}
+	b, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false, got %q", key, value)
+	}
+	return b, nil
 }

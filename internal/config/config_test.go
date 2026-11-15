@@ -8,7 +8,8 @@ import (
 func TestLoadDefaults(t *testing.T) {
 	for _, key := range []string{"MYSQL_DSN", "MYSQL_MAX_OPEN_CONNS", "IMPORT_BATCH_SIZE", "IMPORT_PARSERS",
 		"PUBSUB_EMULATOR_HOST", "PUBSUB_PROJECT_ID", "PUBSUB_TOPIC", "PUBSUB_SUBSCRIPTION", "RELAY_BATCH_SIZE", "RELAY_INTERVAL",
-		"PLATFORM_URL", "MAX_ATTEMPTS", "WORKER_MAX_OUTSTANDING"} {
+		"PLATFORM_URL", "MAX_ATTEMPTS", "WORKER_MAX_OUTSTANDING",
+		"REDIS_ADDR", "CACHE_TTL", "RATE_LIMIT_ENABLED", "RATE_LIMIT_RPS"} {
 		t.Setenv(key, "")
 	}
 
@@ -32,6 +33,11 @@ func TestLoadDefaults(t *testing.T) {
 		PlatformURL:          "http://wiremock:8080",
 		MaxAttempts:          5,
 		WorkerMaxOutstanding: 100,
+
+		RedisAddr:        "redis:6379",
+		CacheTTL:         10 * time.Minute,
+		RateLimitEnabled: true,
+		RateLimitRPS:     200,
 	}
 	if got != want {
 		t.Fatalf("want %+v, got %+v", want, got)
@@ -52,6 +58,10 @@ func TestLoadOverride(t *testing.T) {
 	t.Setenv("PLATFORM_URL", "http://localhost:8080")
 	t.Setenv("MAX_ATTEMPTS", "3")
 	t.Setenv("WORKER_MAX_OUTSTANDING", "10")
+	t.Setenv("REDIS_ADDR", "localhost:6379")
+	t.Setenv("CACHE_TTL", "30s")
+	t.Setenv("RATE_LIMIT_ENABLED", "false")
+	t.Setenv("RATE_LIMIT_RPS", "50")
 
 	got, err := Load()
 	if err != nil {
@@ -73,6 +83,11 @@ func TestLoadOverride(t *testing.T) {
 		PlatformURL:          "http://localhost:8080",
 		MaxAttempts:          3,
 		WorkerMaxOutstanding: 10,
+
+		RedisAddr:        "localhost:6379",
+		CacheTTL:         30 * time.Second,
+		RateLimitEnabled: false,
+		RateLimitRPS:     50,
 	}
 	if got != want {
 		t.Fatalf("want %+v, got %+v", want, got)
@@ -95,6 +110,8 @@ func TestLoadInvalid(t *testing.T) {
 		{"relay batch zero", "RELAY_BATCH_SIZE", "0", `RELAY_BATCH_SIZE must be a positive integer, got "0"`},
 		{"platform url without scheme", "PLATFORM_URL", "localhost:8080", `PLATFORM_URL must be an http(s) URL, got "localhost:8080"`},
 		{"platform url not http", "PLATFORM_URL", "ftp://x", `PLATFORM_URL must be an http(s) URL, got "ftp://x"`},
+		{"rate limit flag not a bool", "RATE_LIMIT_ENABLED", "yes", `RATE_LIMIT_ENABLED must be true or false, got "yes"`},
+		{"cache ttl not a duration", "CACHE_TTL", "10", `CACHE_TTL must be a positive duration such as 1s, got "10"`},
 		{"max attempts zero", "MAX_ATTEMPTS", "0", `MAX_ATTEMPTS must be a positive integer, got "0"`},
 		{"relay batch over placeholder limit", "RELAY_BATCH_SIZE", "65536", "RELAY_BATCH_SIZE must be at most 65535, got 65536"},
 		{"batch over placeholder limit", "IMPORT_BATCH_SIZE", "6554", "IMPORT_BATCH_SIZE must be at most 6553, got 6554"},
