@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -86,5 +87,77 @@ func TestInsertRows(t *testing.T) {
 	}
 	if status != "INVALID" || orderID.Valid || errText.String != "missing click_id" || orderTime.Valid {
 		t.Fatalf("line 3: got status=%s order_id=%v error=%v order_time=%v", status, orderID, errText, orderTime)
+	}
+}
+
+func TestFindOrCreateJob(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+	ctx := context.Background()
+
+	// A sha256 no real file has, so the test never touches other jobs.
+	sha := fmt.Sprintf("%064d", time.Now().UnixNano())
+	t.Cleanup(func() { db.Exec("DELETE FROM import_jobs WHERE file_sha256 = ?", sha) })
+
+	first, err := s.FindOrCreateJob(ctx, "orders.csv", sha)
+	if err != nil || first.Status != JobImporting {
+		t.Fatalf("first call: want IMPORTING, nil; got %+v, %v", first, err)
+	}
+
+	// Same file again, as after an importer crash: reuse the job (IMP-2).
+	again, err := s.FindOrCreateJob(ctx, "orders.csv", sha)
+	if err != nil || again != first {
+		t.Fatalf("second call: want %+v, got %+v, %v", first, again, err)
+	}
+
+	// A finished job is returned as is, so the importer can exit (IMP-1).
+	if _, err := db.Exec("UPDATE import_jobs SET status = ? WHERE id = ?", JobDone, first.ID); err != nil {
+		t.Fatalf("mark job done: %v", err)
+	}
+	done, err := s.FindOrCreateJob(ctx, "orders.csv", sha)
+	if err != nil || done.ID != first.ID || done.Status != JobDone {
+		t.Fatalf("done job: want id=%d DONE, got %+v, %v", first.ID, done, err)
+	}
+}
+
+func TestMarkJobImported(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+	ctx := context.Background()
+
+	sha := fmt.Sprintf("%064d", time.Now().UnixNano())
+	t.Cleanup(func() { db.Exec("DELETE FROM import_jobs WHERE file_sha256 = ?", sha) })
+
+	job, err := s.FindOrCreateJob(ctx, "orders.csv", sha)
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	var status string
+	var total int
+	query := "SELECT status, total_rows FROM import_jobs WHERE id = ?"
+
+	if err := s.MarkJobImported(ctx, job.ID, 20000); err != nil {
+		t.Fatalf("mark imported: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, query, job.ID).Scan(&status, &total); err != nil {
+		t.Fatalf("select job: %v", err)
+	}
+	if status != JobProcessing || total != 20000 {
+		t.Fatalf("after mark: want PROCESSING 20000, got %s %d", status, total)
+	}
+
+	// A DONE job must never go back to PROCESSING.
+	if _, err := db.Exec("UPDATE import_jobs SET status = ? WHERE id = ?", JobDone, job.ID); err != nil {
+		t.Fatalf("mark job done: %v", err)
+	}
+	if err := s.MarkJobImported(ctx, job.ID, 1); err != nil {
+		t.Fatalf("mark imported on done job: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, query, job.ID).Scan(&status, &total); err != nil {
+		t.Fatalf("select job: %v", err)
+	}
+	if status != JobDone || total != 20000 {
+		t.Fatalf("done job: want DONE 20000, got %s %d", status, total)
 	}
 }
