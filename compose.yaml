@@ -1,0 +1,37 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: pipeline
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app        # local demo password only
+      MYSQL_ROOT_PASSWORD: root  # local demo password only
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      # TCP (127.0.0.1) instead of the socket: during init MySQL runs a temporary
+      # server without networking, so this only passes once the migrations are done.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: gcloud beta emulators pubsub start --project=demo --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
+
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings:ro
+    ports:
+      - "8080:8080"
