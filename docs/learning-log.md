@@ -12,6 +12,8 @@ Mỗi dòng ghi một khái niệm đã hiểu và tự dùng được trong cod
 | 2026-11-15 | `internal/csvparse` | Sentinel error, `%w`, `errors.Is` (chưa dùng) | Không so `err.Error()`; khai báo `var ErrX = errors.New(...)`, bọc bằng `%w`, kiểm tra bằng `errors.Is`. Sẽ gặp lại ở `store` (`ErrDuplicate`) |
 | 2026-11-15 | `compose.yaml`, `migrations/` | Healthcheck, `initdb.d`, bind mount | `--wait` chờ healthcheck; `mysqladmin ping -h 127.0.0.1` (TCP) để không pass sớm lúc init. `initdb.d` chỉ chạy khi volume trống. Bind mount tới thư mục chưa có thì Docker tạo bằng root |
 | 2026-11-15 | `wiremock/mappings/` | Priority, catch-all mapping | Status lạ (404) không có trong bảng phân loại thì nên biến thành lỗi rõ tên (`400 missing_idempotency_key`), để bug lộ ra ngay thay vì bị retry che đi |
+| 2026-11-15 | `internal/store` | `*sql.DB` là pool; `ExecContext`, `RowsAffected` với `INSERT IGNORE`; placeholder | Một câu `INSERT` nhiều giá trị đã atomic nên không cần transaction. `IGNORE` hạ cả lỗi khác (cắt chuỗi) thành warning, nên phải validate trước. Chỉ ghép placeholder, không ghép giá trị |
+| 2026-11-15 | `internal/store` | Integration test, blank import, `sql.Null*`, `parseTime` | Test tự `t.Skip` khi thiếu `MYSQL_DSN`; `_` import để driver tự đăng ký; `sql.Open` không kết nối; thiếu `parseTime` thì `DATETIME` về dạng `[]byte` và `Scan` vào `time.Time` lỗi |
 
 ## Câu hỏi còn mở
 

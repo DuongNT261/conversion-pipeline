@@ -9,18 +9,20 @@ Tài liệu này dành cho **người làm dự án**. Đọc file này trước
 | File | Dành cho | Nội dung | Cách đọc |
 | --- | --- | --- | --- |
 | `docs/00-getting-started.md` | Người | File này | Đọc hết, một lần |
+| `docs/04-design-story.md` | Người | **Câu chuyện**: bài toán kinh doanh thật, phiên bản ngây thơ, 11 sự cố production và cách giải tương ứng | Đọc liền một mạch ngay sau file này. Quay lại mỗi khi bắt đầu một giai đoạn mới |
 | `docs/01-requirement-conversion-pipeline.md` | Người và Claude | **Yêu cầu**: làm gì, schema, hành vi từng chương trình, tiêu chí nghiệm thu | Mục 1–5 đọc trước; mục 6 đọc phần của giai đoạn đang làm |
 | `docs/02-architecture-conversion-pipeline.md` | Người | **Vì sao** thiết kế như vậy, không làm vậy thì hỏng ra sao | Mục 1–2 đọc trước; các mục còn lại đọc khi làm tới phần liên quan |
 | `docs/03-coding-guidelines.md` | Người và Claude | Quy ước code, Git | Lướt một lần; tra lại khi viết code |
 | `docs/learning-log.md` | Người | Nhật ký những gì đã học | Ghi sau mỗi function |
 | `CLAUDE.md` | Claude Code | Vai trò, quy trình, ràng buộc của Claude | Đọc một lần để biết Claude sẽ cư xử thế nào |
 
-**Thứ tự đọc lần đầu, khoảng 1 giờ:**
+**Thứ tự đọc lần đầu, khoảng 1,5 giờ:**
 
 1. File này.
-2. `02` mục 1 (thay đổi tư duy từ mobile sang backend) và mục 2 (toàn cảnh).
-3. `01` mục 1–5: mục tiêu, phạm vi, sơ đồ hệ thống, dữ liệu đầu vào, schema và trạng thái.
-4. Lướt `03` để biết có những quy tắc nào.
+2. `04`, câu chuyện thiết kế (khoảng 40 phút). **Đây là tài liệu quan trọng nhất để hiểu vì sao hệ thống trông như vậy.**
+3. `02` mục 1: thay đổi tư duy từ mobile sang backend.
+4. `01` mục 1–5: mục tiêu, phạm vi, sơ đồ hệ thống, dữ liệu đầu vào, schema và trạng thái.
+5. Lướt `03` để biết có những quy tắc nào.
 
 ### Mã yêu cầu
 
@@ -36,15 +38,15 @@ Tài liệu `01` gắn mã cho từng yêu cầu. Dùng chúng khi trao đổi v
 
 ### Giai đoạn nào đọc mục nào
 
-| Giai đoạn | `01` | `02` | `03` |
-| --- | --- | --- | --- |
-| 0. Hạ tầng | 5, 9 | 2 | 12.1 |
-| 1. csvparse, gen | 4 | 3 | 1, 2, 9 |
-| 2. store, importer | 6.1 | 3, 4, 5, 6 | 3, 4, 5 |
-| 3. queue, relay | 6.2 | 7, 8, 9 | 4, 5 |
-| 4. platform, worker | 6.3, 6.4 | 9, 10, 11, 15, 16 | 4, 6, 7 |
-| 5. cache, ratelimit | 6.3 (WRK-2, 4, 5, 11) | 12, 13, 14 | 4 |
-| 6. report, Docker | 6.5, 9, 10 | 17, 18 | 8 |
+| Giai đoạn | `04` (sự cố số) | `01` | `02` | `03` |
+| --- | --- | --- | --- | --- |
+| 0. Hạ tầng | Phần 1, 2 | 5, 9 | 2 | 12.1 |
+| 1. csvparse, gen | 2 | 4 | 3 | 1, 2, 9 |
+| 2. store, importer | 1, 2, 3, 4, 11 | 6.1 | 3, 4, 5, 6 | 3, 4, 5 |
+| 3. queue, relay | 5, 6 | 6.2 | 7, 8, 9 | 4, 5 |
+| 4. platform, worker | 7, 9, 11 | 6.3, 6.4 | 9, 10, 11, 15, 16 | 4, 6, 7 |
+| 5. cache, ratelimit | 8, 10 | 6.3 (WRK-2, 4, 5, 11) | 12, 13, 14 | 4 |
+| 6. report, Docker | Phần 5, 6 | 6.5, 9, 10 | 17, 18 | 8 |
 
 ---
 
@@ -77,7 +79,7 @@ flowchart LR
 
 | Thành phần | Vị trí | Tác dụng |
 | --- | --- | --- |
-| `CLAUDE.md` | Gốc repo | Claude Code tự đọc mỗi khi mở phiên. Biến Claude thành **mentor**: hỏi ý tưởng của bạn trước, chỉ viết đúng một function, giải thích sau khi viết, gợi ý trước khi đưa đáp án |
+| `CLAUDE.md` | Gốc repo | Claude Code tự đọc mỗi khi mở phiên. Biến Claude thành **mentor**: viết ngay phần bạn yêu cầu, giải thích rõ sau khi viết, rồi hỏi bạn còn chỗ nào chưa rõ |
 | Quy ước code | `docs/03`, được import vào `CLAUDE.md` | Claude luôn biết quy tắc đa luồng, `database/sql`, log, test, Git |
 | Skill `/review` | `.claude/skills/review/` | Review code chưa commit, chạy `gofmt`, `go vet`, `go test -race`, gợi ý bằng câu hỏi |
 | Skill `/quiz` | `.claude/skills/quiz/` | 4 câu hỏi kiểu phỏng vấn từ chính code vừa viết, chấm và đưa câu trả lời mẫu |
@@ -85,32 +87,28 @@ flowchart LR
 
 **Những gì Claude Code sẽ không tự làm:** thêm thư viện, dùng ORM, sửa schema hay yêu cầu trong `01`, xoá test, chạy lệnh xoá dữ liệu, commit, push.
 
-**Kiểm tra cài đặt đã nhận:** mở Claude Code trong thư mục repo, gõ `/` để thấy `/review` và `/quiz` trong danh sách lệnh. Hỏi thử: *"Trong repo này bạn đóng vai trò gì và sẽ làm việc với mình theo quy trình nào?"*. Claude phải trả lời đúng vai trò mentor và quy trình 5 bước.
+**Kiểm tra cài đặt đã nhận:** mở Claude Code trong thư mục repo, gõ `/` để thấy `/review` và `/quiz` trong danh sách lệnh. Hỏi thử: *"Trong repo này bạn đóng vai trò gì và sẽ làm việc với mình theo quy trình nào?"*. Claude phải trả lời đúng vai trò mentor: viết code ngay, giải thích rõ, rồi hỏi bạn chỗ nào chưa rõ.
 
 `CLAUDE.md` là ngữ cảnh, không phải cơ chế bắt buộc. Thỉnh thoảng Claude có thể làm quá phạm vi. Khi đó nhắc lại: *"Theo CLAUDE.md, chỉ viết function X thôi."*
 
 ---
 
-## 4. Nhịp làm việc cho mỗi function
+## 4. Nhịp làm việc cho mỗi phần
 
 ```mermaid
 flowchart TD
-    A["Đứng trên branch của giai đoạn"] --> B["Đọc mã yêu cầu trong 01<br/>và mục liên quan trong 02"]
-    B --> C["Nêu ý tưởng cho Claude"]
-    C --> D["Claude nhận xét, chốt kế hoạch"]
-    D --> E["Viết code<br/>(tự viết, hoặc Claude viết đúng 1 function)"]
-    E --> F["go test -race ./..."]
-    F --> G["/review"]
-    G -->|"còn vấn đề"| E
-    G -->|"ổn"| H["git add + git commit<br/>(tự chạy)"]
-    H --> I["/quiz"]
-    I --> J["Ghi learning-log"]
-    J --> K{"Hết function<br/>của giai đoạn?"}
+    A["Đứng trên branch của giai đoạn"] --> B["Yêu cầu Claude viết phần tiếp theo<br/>(kèm mã yêu cầu trong 01)"]
+    B --> C["Claude viết code và giải thích"]
+    C --> D{"Hiểu hết chưa?"}
+    D -->|"Chưa"| E["Hỏi lại chỗ chưa rõ"] --> D
+    D -->|"Rồi"| F["go test -race ./..."]
+    F --> H["git add + git commit<br/>(tự chạy)"]
+    H --> K{"Hết phần việc<br/>của giai đoạn?"}
     K -->|"Chưa"| B
     K -->|"Rồi"| L["Kiểm tra AC của giai đoạn<br/>merge vào main, gắn tag"]
 ```
 
-Một function chỉ xong khi bạn **tự giải thích được từng dòng**. Nếu chưa giải thích được, hỏi lại Claude cho tới khi hiểu, rồi mới commit.
+Một phần chỉ xong khi bạn **tự giải thích được từng dòng**. Chưa hiểu thì hỏi lại Claude cho tới khi hiểu, rồi mới commit. `/review` và `/quiz` là tuỳ chọn: dùng khi có thời gian, nên ưu tiên cho importer, relay, worker vì đó là phần hay bị hỏi khi phỏng vấn.
 
 ---
 
@@ -124,30 +122,28 @@ Mình đang ở giai đoạn 2, branch stage-2-importer.
 Hôm nay làm IMP-3 và IMP-4. Mình đã đọc 02 mục 3–4.
 ```
 
-**Nhờ viết một function**, nêu đủ 4 ý:
+**Nhờ viết code**, chỉ cần nêu phần cần làm và mã yêu cầu:
 ```
-Mục tiêu: hàm insertBatch trong internal/store (IMP-6).
-Ý tưởng của mình: nhận []Row, dựng một câu INSERT IGNORE nhiều giá trị,
-chạy trong transaction.
-Chỗ mình chưa chắc: dựng chuỗi placeholder thế nào cho gọn,
-có cần transaction khi chỉ có một câu lệnh không.
-Phạm vi: chỉ hàm insertBatch, chưa cần test.
+Viết hàm insertBatch trong internal/store theo IMP-6.
+```
+Muốn rõ hơn thì thêm chỗ bạn đang thắc mắc, Claude sẽ giải thích kỹ chỗ đó:
+```
+Viết hàm insertBatch trong internal/store theo IMP-6.
+Giải thích kỹ cách dựng chuỗi placeholder, và vì sao cần transaction.
 ```
 
 **Hỏi khái niệm:**
 ```
 Giải thích vì sao lệnh gửi vào channel trong reader cần select với ctx.Done(),
-dùng đúng code trong cmd/importer, so sánh với Swift nếu được.
+dùng đúng code trong cmd/importer.
 ```
 
 **Khi gặp lỗi:**
 ```
 go test -race báo lỗi dưới đây. Mình đã thử thêm mutex ở hàm X nhưng vẫn lỗi.
-Đừng đưa đáp án vội, gợi ý mình chỗ cần xem.
 <dán nguyên văn lỗi>
 ```
-
-**Khi muốn có đáp án ngay:** thêm *"cho đáp án luôn"*.
+Claude sẽ đưa luôn nguyên nhân, cách sửa và vì sao. Muốn tự mò trước thì thêm *"gợi ý thôi"*.
 
 **Review và quiz:**
 ```
@@ -172,7 +168,7 @@ go test -race báo lỗi dưới đây. Mình đã thử thêm mutex ở hàm X 
 
 - **Mỗi function một phiên.** Xong một function thì dùng `/clear` để bắt đầu lại với ngữ cảnh sạch. `CLAUDE.md` vẫn được nạp lại.
 - **Luôn kèm mã yêu cầu** (IMP-6, WRK-9...) để Claude đọc đúng chỗ trong `01`.
-- **Tự viết trước khi nhờ.** Với hàm ngắn, thử tự viết rồi dùng `/review`. Bạn học được nhiều hơn so với đọc code Claude viết.
+- **Đọc kỹ phần giải thích**, đừng chỉ chép code. Không hiểu dòng nào thì hỏi ngay dòng đó.
 - **Hỏi "vì sao" nhiều hơn hỏi "làm sao".** Câu trả lời cho "vì sao" là thứ bạn sẽ dùng khi phỏng vấn.
 
 ---

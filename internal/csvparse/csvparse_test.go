@@ -47,6 +47,13 @@ func TestParseErrors(t *testing.T) {
 		{"order_time wrong layout", []string{"A1", "clk_1", "17", "1000", "13/11/2026 19:20"}, "invalid order_time"},
 		{"order_time utc", []string{"A1", "clk_1", "17", "1000", "2026-11-13T12:00:00Z"}, ""},
 		{"order_time with spaces", []string{"A1", "clk_1", "17", "1000", " " + validTime + " "}, ""},
+
+		{"two problems", []string{"A1", "", "17", "abc", validTime}, "missing click_id; invalid amount"},
+		{"blank line with 5 columns", []string{"", "", "", "", ""},
+			"missing order_id; missing click_id; missing campaign_id; missing amount; missing order_time"},
+		{"every column invalid", []string{strings.Repeat("A", 65), strings.Repeat("c", 129), "0", "-1", "2026-11-13"},
+			"order_id too long; click_id too long; invalid campaign_id; invalid amount; invalid order_time"},
+		{"wrong column count wins over other problems", []string{"", "", ""}, "want 5 columns, got 3"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,5 +83,14 @@ func TestParseValues(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("want %+v, got %+v", want, got)
+	}
+}
+
+// The longest possible message must fit import_rows.error VARCHAR(255).
+func TestParseErrorFitsColumn(t *testing.T) {
+	worst := []string{strings.Repeat("A", 65), strings.Repeat("c", 129), "missing", "missing", "missing"}
+	_, err := Parse(worst)
+	if err == nil || len(err.Error()) > 255 {
+		t.Fatalf("want an error of at most 255 bytes, got %d bytes: %v", len(err.Error()), err)
 	}
 }
