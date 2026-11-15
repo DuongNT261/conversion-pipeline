@@ -4,7 +4,10 @@ Mỗi dòng ghi một khái niệm đã hiểu và tự dùng được trong cod
 
 | Ngày | Phần code | Khái niệm | Hiểu đến đâu / còn thắc mắc |
 | --- | --- | --- | --- |
-| | | | |
+| 2026-11-15 | `cmd/gen` | `math/rand` với seed riêng (`rand.New(rand.NewSource(seed))`) | Cùng seed thì cùng file; nhưng thêm hay bớt một lần gọi `rng` làm dịch toàn bộ dữ liệu phía sau, nên file đổi dù logic gần như không đổi |
+| 2026-11-15 | `cmd/gen` | Dữ liệu test phải khớp thứ tự xử lý của hệ thống | Dòng `INVALID` dừng ở importer, không tới worker. Worker kiểm tra campaign trước rồi mới gọi API, nên dòng `clk_old`, `clk_err` và dòng trùng cần campaign tồn tại (1–200) thì mới ra đúng kết quả mong đợi |
+| 2026-11-15 | `internal/csvparse` | Pure function và data race; `string` tính theo byte (`len`) hay theo rune (`utf8.RuneCountInString`) | Hàm không ghi vào vùng nhớ chung thì gọi song song an toàn. Bỏ lỗi gốc của `strconv`/`time` để thông báo lưu trong DB ngắn và ổn định |
+| 2026-11-15 | `internal/csvparse` | `time.Time`: `==` và `Equal`; MySQL `DATETIME` | `==` so cả múi giờ, `Equal` chỉ so thời điểm. `DATETIME` không lưu múi giờ; driver chuyển theo `loc` của DSN (mặc định UTC), nên mọi service phải dùng chung DSN |
 
 ## Câu hỏi còn mở
 
@@ -14,4 +17,4 @@ Mỗi dòng ghi một khái niệm đã hiểu và tự dùng được trong cod
 
 Ghi lại các tình huống thật gặp trong lúc làm: lỗi khó, quyết định thiết kế, cách debug.
 
-- 
+- Generator ban đầu cho dòng `clk_old` trỏ cả tới campaign không tồn tại, nên dòng đó ra `campaign_not_found` thay vì `click_expired`. Bài học: kiểm tra điều kiện nội bộ rẻ (campaign) trước khi gọi hệ thống bên ngoài, vì gọi trước sẽ tốn rate limit và có thể gửi conversion sai sang nền tảng quảng cáo.
