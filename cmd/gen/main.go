@@ -1,4 +1,4 @@
-// Command gen sinh file CSV đơn hàng mẫu cho conversion-pipeline (docs/01 mục 4.2).
+// Command gen writes a sample orders CSV for conversion-pipeline (docs/01 section 4.2).
 package main
 
 import (
@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// Ngưỡng tích luỹ của các tình huống. Mỗi dòng chỉ rơi vào tối đa một tình huống,
-// nên một lần gieo xúc xắc rồi so với các ngưỡng này là đủ.
+// Cumulative thresholds of the scenarios. Each row falls into at most one scenario,
+// so a single roll compared against these thresholds is enough.
 const (
 	upToMissingClick = 0.01
 	upToBadAmount    = upToMissingClick + 0.005
@@ -23,15 +23,21 @@ const (
 	upToClickErr     = upToClickOld + 0.002
 )
 
+// The campaigns table only has ids 1-200, so ids 201-220 (~9% of rows) never exist.
+const (
+	existingCampaigns = 200
+	maxCampaignID     = 220
+)
+
 var (
 	badAmounts = []string{"abc", "0", "-1000"}
 	badTimes   = []string{"13/11/2026 19:20", "not-a-time", "2026-11-13"}
 )
 
 func main() {
-	rows := flag.Int("rows", 20000, "số dòng dữ liệu (không tính header)")
-	out := flag.String("out", "./data/orders.csv", "đường dẫn file đầu ra")
-	seed := flag.Int64("seed", 42, "seed ngẫu nhiên, cùng seed thì cùng file")
+	rows := flag.Int("rows", 20000, "number of data rows (header excluded)")
+	out := flag.String("out", "./data/orders.csv", "output file path")
+	seed := flag.Int64("seed", 42, "random seed; the same seed produces the same file")
 	flag.Parse()
 
 	if err := run(*rows, *out, *seed); err != nil {
@@ -61,12 +67,12 @@ func run(rows int, out string, seed int64) error {
 	if err := w.Error(); err != nil {
 		return fmt.Errorf("flush csv: %w", err)
 	}
-	// Close lần hai ở đây để bắt lỗi ghi xuống đĩa; defer ở trên chỉ là lưới an toàn.
+	// Close explicitly to catch write errors on disk; the deferred Close is only a safety net.
 	return f.Close()
 }
 
-// writeOrders ghi từng dòng ra ngay, không giữ cả file trong bộ nhớ,
-// để sinh được file 1 triệu dòng cho AC-11.
+// writeOrders writes each row as soon as it is built instead of holding the whole
+// file in memory, so it can produce the 1-million-row file for AC-11.
 func writeOrders(w *csv.Writer, rows int, seed int64) error {
 	rng := rand.New(rand.NewSource(seed))
 	base := time.Date(2026, 11, 13, 0, 0, 0, 0, time.FixedZone("ICT", 7*3600))
@@ -76,13 +82,16 @@ func writeOrders(w *csv.Writer, rows int, seed int64) error {
 		return fmt.Errorf("write header: %w", err)
 	}
 
-	// prev là dòng bình thường gần nhất, dùng để sinh dòng trùng order_id.
-	// Chỉ nhân bản dòng bình thường để kết quả mong đợi đúng: bản đầu DONE, bản sau SKIPPED.
+	// prev is the latest row allowed to be duplicated. Only plain rows with an existing
+	// campaign qualify, so the first copy can reach DONE and later copies become SKIPPED.
+	// PAUSED campaigns come from the seed data, which gen does not know, so a few
+	// duplicates may still end as FAILED campaign_paused.
 	var prev []string
 	for i := 1; i <= rows; i++ {
-		rec := newRecord(rng, base, i)
+		campaignID := rng.Intn(maxCampaignID) + 1
+		rec := newRecord(rng, base, i, campaignID)
 		rec, plain := applyScenario(rng, rec, prev)
-		if plain {
+		if plain && campaignID <= existingCampaigns {
 			prev = rec
 		}
 		if err := w.Write(rec); err != nil {
@@ -92,21 +101,21 @@ func writeOrders(w *csv.Writer, rows int, seed int64) error {
 	return nil
 }
 
-// newRecord tạo một dòng hợp lệ. click_id chỉ dùng chữ số hex nên không bao giờ
-// bắt đầu bằng clk_old hay clk_err.
-func newRecord(rng *rand.Rand, base time.Time, i int) []string {
+// newRecord builds a valid row. click_id uses hex digits only, so it never
+// starts with clk_old or clk_err.
+func newRecord(rng *rand.Rand, base time.Time, i int, campaignID int) []string {
 	orderTime := base.Add(time.Duration(rng.Intn(24*3600)) * time.Second)
 	return []string{
 		fmt.Sprintf("A%06d", i),
 		fmt.Sprintf("clk_%08x", rng.Int63n(1<<32)),
-		strconv.Itoa(rng.Intn(220) + 1), // 201-220 là campaign không tồn tại (~9%)
+		strconv.Itoa(campaignID),
 		strconv.Itoa((rng.Intn(500) + 1) * 1000),
 		orderTime.Format(time.RFC3339),
 	}
 }
 
-// applyScenario có thể làm hỏng dòng theo tỉ lệ ở docs/01 mục 4.2.
-// plain báo dòng trả về là dòng bình thường, được phép làm nguồn cho dòng trùng.
+// applyScenario may break the row according to the ratios in docs/01 section 4.2.
+// plain reports whether the returned row is untouched.
 func applyScenario(rng *rand.Rand, rec, prev []string) (out []string, plain bool) {
 	roll := rng.Float64()
 	switch {
@@ -118,13 +127,17 @@ func applyScenario(rng *rand.Rand, rec, prev []string) (out []string, plain bool
 		rec[4] = badTimes[rng.Intn(len(badTimes))]
 	case roll < upToDuplicate:
 		if prev == nil {
-			return rec, true // chưa có dòng nào để trùng
+			return rec, true // nothing to duplicate yet
 		}
 		return prev, false
+	// The worker checks the campaign before calling the API, so these rows need an
+	// existing campaign to actually reach WireMock.
 	case roll < upToClickOld:
 		rec[1] = fmt.Sprintf("clk_old%05x", rng.Intn(1<<20))
+		rec[2] = strconv.Itoa(rng.Intn(existingCampaigns) + 1)
 	case roll < upToClickErr:
 		rec[1] = fmt.Sprintf("clk_err%05x", rng.Intn(1<<20))
+		rec[2] = strconv.Itoa(rng.Intn(existingCampaigns) + 1)
 	default:
 		return rec, true
 	}
