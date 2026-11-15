@@ -14,14 +14,23 @@ import (
 	"github.com/duongnt261/conversion-pipeline/internal/store"
 )
 
-// rowStore and sender are the parts of store and platform the worker uses;
-// tests pass fakes.
+// rowStore, campaignReader, rateLimiter and sender are the parts of store,
+// cache, ratelimit and platform the worker uses; tests pass fakes.
 type rowStore interface {
 	GetRow(ctx context.Context, id int64) (store.WorkRow, error)
-	CampaignStatus(ctx context.Context, id int64) (string, error)
 	MarkDone(ctx context.Context, row store.WorkRow, conversionID string) (string, error)
 	MarkFailed(ctx context.Context, rowID int64, reason string) error
 	IncrementAttempts(ctx context.Context, rowID int64) (int, error)
+}
+
+// campaignReader is cache.Campaigns in the worker: Redis first, MySQL on a miss.
+type campaignReader interface {
+	CampaignStatus(ctx context.Context, id int64) (string, error)
+}
+
+type rateLimiter interface {
+	Wait(ctx context.Context) error
+	CountCall(ctx context.Context)
 }
 
 type sender interface {
@@ -32,6 +41,8 @@ type sender interface {
 // once, and everything here is safe to share.
 type worker struct {
 	db          rowStore
+	campaigns   campaignReader
+	limiter     rateLimiter
 	api         sender
 	maxAttempts int
 	logger      *slog.Logger
@@ -76,7 +87,7 @@ func (w *worker) process(ctx context.Context, rowID int64) bool {
 		return true
 	}
 
-	status, err := w.db.CampaignStatus(work, row.CampaignID)
+	status, err := w.campaigns.CampaignStatus(work, row.CampaignID)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return w.fail(work, log, row.ID, "campaign_not_found")
@@ -87,6 +98,13 @@ func (w *worker) process(ctx context.Context, rowID int64) bool {
 		return w.fail(work, log, row.ID, "campaign_paused")
 	}
 
+	// The wait uses ctx: on shutdown we give the message back instead of
+	// waiting for a free call.
+	if err := w.limiter.Wait(ctx); err != nil {
+		log.Info("stopped while waiting for the rate limiter, message nacked")
+		return false
+	}
+	w.limiter.CountCall(work)
 	resp := w.api.Send(work, platform.Conversion{
 		OrderID: row.OrderID, ClickID: row.ClickID, CampaignID: row.CampaignID,
 		Amount: row.Amount, OrderTime: row.OrderTime,
