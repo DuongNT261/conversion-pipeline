@@ -45,6 +45,12 @@ func (f *fakeStore) IncrementAttempts(context.Context, int64) (int, error) {
 	return f.attempts, nil
 }
 
+// fakeLimiter never waits; it records how many calls were counted.
+type fakeLimiter struct{ counted int }
+
+func (f *fakeLimiter) Wait(ctx context.Context) error { return nil }
+func (f *fakeLimiter) CountCall(context.Context)      { f.counted++ }
+
 type fakeSender struct {
 	resp  platform.Response
 	calls int
@@ -89,13 +95,19 @@ func TestProcess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := tt.db
 			api := &fakeSender{resp: tt.resp}
-			w := &worker{db: &db, api: api, maxAttempts: 5, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+			limiter := &fakeLimiter{}
+			w := &worker{db: &db, campaigns: &db, limiter: limiter, api: api, maxAttempts: 5,
+				logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 			// An already cancelled ctx skips the backoff wait, as on shutdown.
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 			ack := w.process(ctx, 1)
 
+			// WRK-5: every API call is counted, and only API calls are.
+			if limiter.counted != api.calls {
+				t.Fatalf("counted %d calls, sent %d", limiter.counted, api.calls)
+			}
 			if ack != tt.wantAck || api.calls != tt.wantCalls || db.doneWith != tt.wantDone || db.failed != tt.wantFail {
 				t.Fatalf("want ack=%v calls=%d done=%q failed=%q; got ack=%v calls=%d done=%q failed=%q",
 					tt.wantAck, tt.wantCalls, tt.wantDone, tt.wantFail, ack, api.calls, db.doneWith, db.failed)
