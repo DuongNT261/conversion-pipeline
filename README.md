@@ -132,6 +132,19 @@ Test Redis dùng DB số 15, không đụng key của worker ở DB 0.
 
 Mọi cấu hình đọc từ biến môi trường trong `internal/config`, kiểm tra ngay lúc khởi động. Giá trị sai thì chương trình dừng với thông báo rõ ràng.
 
+### Ghi đè trên máy của bạn: `.env`
+
+```bash
+cp .env.example .env   # rồi bỏ comment và sửa dòng cần đổi
+```
+
+- Docker Compose tự đọc `.env` ở thư mục gốc. Dòng nào không có trong `.env` thì dùng mặc định ở bảng dưới.
+- `.env` **không được commit** (đã có trong `.gitignore`) và không bị đưa vào image (đã có trong `.dockerignore`). `.env.example` được commit để làm tài liệu, không chứa bí mật.
+- Hay dùng nhất là đổi cổng phía host khi máy đang có chương trình khác chiếm cổng: `MYSQL_HOST_PORT`, `REDIS_HOST_PORT`, `PUBSUB_HOST_PORT`, `WIREMOCK_HOST_PORT`. Đổi cổng thì nhớ đổi theo các biến `localhost` khi chạy `go run`.
+- Thứ tự ưu tiên: biến `export` trong shell > `.env` > mặc định trong `compose.yaml`.
+- Chương trình chạy bằng `go run` **không** đọc `.env`, chỉ thấy biến đã `export` trong shell.
+- `.env` chỉ giúp không commit cấu hình riêng của từng máy, nó **không mã hoá** gì cả. Mật khẩu MySQL trong `compose.yaml` là mật khẩu demo local. Production lấy bí mật từ Secret Manager (`docs/02` mục 18).
+
 | Biến | Mặc định | Dùng bởi | Ý nghĩa |
 | --- | --- | --- | --- |
 | `MYSQL_DSN` | `app:app@tcp(mysql:3306)/pipeline?parseTime=true` | tất cả | Kết nối MySQL. `parseTime=true` để đọc `DATETIME` thành `time.Time` |

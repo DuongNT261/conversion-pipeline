@@ -2,6 +2,7 @@
 # ${VAR:-default} form lets one command override a value, for example
 # RATE_LIMIT_ENABLED=false docker compose up -d. Careful: a variable exported in
 # your shell for `go run` (MYSQL_DSN=...localhost...) also wins here.
+# Local overrides go in .env (see .env.example); compose reads it by itself.
 x-app-env: &app-env
   MYSQL_DSN: ${MYSQL_DSN:-app:app@tcp(mysql:3306)/pipeline?parseTime=true}
   MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
@@ -38,7 +39,7 @@ services:
     volumes:
       - ./migrations:/docker-entrypoint-initdb.d:ro
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3306}:3306"
     healthcheck:
       # TCP (127.0.0.1) instead of the socket: during init MySQL runs a temporary
       # server without networking, so this only passes once the migrations are done.
@@ -50,20 +51,20 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
 
   pubsub:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
     command: gcloud beta emulators pubsub start --project=demo --host-port=0.0.0.0:8085
     ports:
-      - "8085:8085"
+      - "${PUBSUB_HOST_PORT:-8085}:8085"
 
   wiremock:
     image: wiremock/wiremock:3.9.1
     volumes:
       - ./wiremock/mappings:/home/wiremock/mappings:ro
     ports:
-      - "8080:8080"
+      - "${WIREMOCK_HOST_PORT:-8080}:8080"
 
   relay:
     <<: *app

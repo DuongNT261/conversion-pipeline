@@ -21,6 +21,8 @@ coverage.*
 # Biến môi trường cục bộ
 .env
 .env.*
+# file mẫu không chứa bí mật, được commit để làm tài liệu
+!.env.example
 
 # File cá nhân của Claude Code
 CLAUDE.local.md

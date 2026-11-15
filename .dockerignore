@@ -4,3 +4,6 @@ data/
 .claude/
 docs/
 *.md
+# A real .env must never reach the build context (and so the image layers).
+.env
+.env.*
