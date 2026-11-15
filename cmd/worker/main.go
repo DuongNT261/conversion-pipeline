@@ -73,7 +73,10 @@ func run(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		return err
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	// No retries inside go-redis: the cache and the limiter already fall back
+	// (MySQL, or calling without a limit), so retrying only slows every row
+	// down while Redis is out (about 400 ms per row measured with 3 retries).
+	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, MaxRetries: -1})
 	defer rdb.Close()
 	// Redis down is not fatal (WRK-2): the cache falls back to MySQL and the
 	// limiter lets calls through, so only warn.

@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,4 +95,34 @@ func TestCampaignStatusRedisDown(t *testing.T) {
 	if err := c.FlushStats(context.Background()); err == nil || c.misses.Load() != 2 {
 		t.Fatalf("want flush error and counts kept, got %v, misses=%d", err, c.misses.Load())
 	}
+}
+
+// Many goroutines failing at once must log the outage only once.
+func TestRedisDownLoggedOnce(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
+	defer rdb.Close()
+	var logs countingWriter
+	c := NewCampaigns(rdb, &fakeDB{statuses: map[int64]string{1: "ACTIVE"}}, time.Minute,
+		slog.New(slog.NewTextHandler(&logs, nil)))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.CampaignStatus(context.Background(), 1)
+		}()
+	}
+	wg.Wait()
+	if n := logs.lines.Load(); n != 1 {
+		t.Fatalf("want 1 warning for the outage, got %d", n)
+	}
+}
+
+// countingWriter counts log lines; slog writes one line per call.
+type countingWriter struct{ lines atomic.Int64 }
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.lines.Add(1)
+	return len(p), nil
 }

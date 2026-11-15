@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-redis/redis_rate/v10"
@@ -24,6 +25,9 @@ type Limiter struct {
 	rps     int
 	enabled bool
 	logger  *slog.Logger
+
+	// redisDown makes an outage log one warning instead of one per call.
+	redisDown atomic.Bool
 }
 
 func New(rdb *redis.Client, rps int, enabled bool, logger *slog.Logger) *Limiter {
@@ -43,8 +47,13 @@ func (l *Limiter) Wait(ctx context.Context) error {
 	for {
 		res, err := l.limiter.Allow(ctx, limitKey, l.limit())
 		if err != nil {
-			l.logger.Warn("rate limiter unavailable, calling without it", "error", err)
+			if l.redisDown.CompareAndSwap(false, true) {
+				l.logger.Warn("rate limiter unavailable, calling without it", "error", err)
+			}
 			return nil
+		}
+		if l.redisDown.CompareAndSwap(true, false) {
+			l.logger.Info("rate limiter available again")
 		}
 		if res.Allowed > 0 {
 			return nil
@@ -66,14 +75,13 @@ func (l *Limiter) limit() redis_rate.Limit {
 }
 
 // CountCall adds one to calls:{unix_second} (WRK-5). INCR is atomic in Redis,
-// so calls from all workers add up without losing any. It only measures, so a
-// Redis error is logged and ignored.
+// so calls from all workers add up without losing any.
 func (l *Limiter) CountCall(ctx context.Context) {
 	key := fmt.Sprintf("calls:%d", time.Now().Unix())
 	pipe := l.rdb.TxPipeline()
 	pipe.Incr(ctx, key)
 	pipe.Expire(ctx, key, callCounterTTL)
-	if _, err := pipe.Exec(ctx); err != nil {
-		l.logger.Warn("count api call failed", "key", key, "error", err)
-	}
+	// Its errors are not logged: an outage is already reported by Wait, and
+	// this counter only measures.
+	pipe.Exec(ctx)
 }
