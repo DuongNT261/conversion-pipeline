@@ -1,0 +1,6 @@
+# Keep the build context small: generated CSV files can be hundreds of MB.
+data/
+.git/
+.claude/
+docs/
+*.md
