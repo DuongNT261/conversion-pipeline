@@ -4,7 +4,9 @@ go 1.27.4
 
 require (
 	cloud.google.com/go/pubsub v1.45.1
+	github.com/go-redis/redis_rate/v10 v10.0.1
 	github.com/go-sql-driver/mysql v1.9.3
+	github.com/redis/go-redis/v9 v9.7.0
 	golang.org/x/sync v0.10.0
 	google.golang.org/api v0.203.0
 	google.golang.org/grpc v1.67.1
@@ -17,6 +19,8 @@ require (
 	cloud.google.com/go/compute/metadata v0.5.2 // indirect
 	cloud.google.com/go/iam v1.2.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
