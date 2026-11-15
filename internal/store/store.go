@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql" // also registers the "mysql" driver for sql.Open
 
 	"github.com/duongnt261/conversion-pipeline/internal/csvparse"
 )
@@ -28,6 +28,7 @@ const (
 	RowDone      = "DONE"
 	RowSkipped   = "SKIPPED"
 	RowFailed    = "FAILED"
+	RowInvalid   = "INVALID"
 )
 
 const CampaignPaused = "PAUSED"
@@ -47,6 +48,31 @@ type Store struct {
 
 func New(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// pingTimeout bounds the startup check, so a wrong address stops the program
+// with a clear error instead of hanging (docs/03 section 8).
+const pingTimeout = 30 * time.Second
+
+// Open creates the single *sql.DB of a process with the pool settings of
+// docs/03 section 5, and checks the connection: sql.Open itself does not
+// connect, so a wrong DSN would otherwise only fail on the first query.
+func Open(ctx context.Context, dsn string, maxOpenConns int) (*sql.DB, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping db: %w", err)
+	}
+	return db, nil
 }
 
 // FindOrCreateJob returns the job for this file content (IMP-1, IMP-2).
@@ -126,9 +152,9 @@ func (s *Store) InsertRows(ctx context.Context, jobID int64, rows []Row) (int64,
 
 		if r.Err == "" {
 			o := r.Order
-			args = append(args, jobID, r.LineNo, o.OrderID, o.ClickID, o.CampaignID, o.Amount, o.OrderTime, r.RawLine, "PENDING", nil)
+			args = append(args, jobID, r.LineNo, o.OrderID, o.ClickID, o.CampaignID, o.Amount, o.OrderTime, r.RawLine, RowPending, nil)
 		} else {
-			args = append(args, jobID, r.LineNo, nil, nil, nil, nil, nil, r.RawLine, "INVALID", r.Err)
+			args = append(args, jobID, r.LineNo, nil, nil, nil, nil, nil, r.RawLine, RowInvalid, r.Err)
 		}
 	}
 

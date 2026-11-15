@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/duongnt261/conversion-pipeline/internal/cache"
@@ -50,17 +48,11 @@ func run(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	startCtx, cancel := context.WithTimeout(ctx, startupTimeout)
 	defer cancel()
 
-	db, err := sql.Open("mysql", cfg.MySQLDSN)
+	db, err := store.Open(ctx, cfg.MySQLDSN, cfg.MySQLMaxOpenConns)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return err
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(cfg.MySQLMaxOpenConns)
-	db.SetMaxIdleConns(cfg.MySQLMaxOpenConns)
-	db.SetConnMaxLifetime(5 * time.Minute)
-	if err := db.PingContext(startCtx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
-	}
 
 	client, err := queue.NewClient(ctx, cfg.PubSubEmulatorHost, cfg.PubSubProjectID)
 	if err != nil {

@@ -25,7 +25,7 @@ func printJob(out io.Writer, r store.JobReport) {
 	fmt.Fprintf(out, "Job %d  file=%s  status=%s  duration=%s\n", r.ID, r.FileName, r.Status, duration)
 
 	done, skipped := r.ByStatus[store.RowDone], r.ByStatus[store.RowSkipped]
-	failed, invalid := r.ByStatus[store.RowFailed], r.ByStatus["INVALID"]
+	failed, invalid := r.ByStatus[store.RowFailed], r.ByStatus[store.RowInvalid]
 	inFlight := r.ByStatus[store.RowPending] + r.ByStatus[store.RowPublished]
 
 	fmt.Fprintf(out, "  total    %d\n", r.TotalRows)

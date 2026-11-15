@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/duongnt261/conversion-pipeline/internal/config"
@@ -43,14 +41,11 @@ func main() {
 }
 
 func run(ctx context.Context, cfg config.Config, jobID int64, wait bool, out io.Writer) error {
-	db, err := sql.Open("mysql", cfg.MySQLDSN)
+	db, err := store.Open(ctx, cfg.MySQLDSN, cfg.MySQLMaxOpenConns)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return err
 	}
 	defer db.Close()
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
-	}
 	st := store.New(db)
 
 	if jobID == 0 {
