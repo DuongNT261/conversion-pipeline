@@ -330,3 +330,102 @@ func TestFinishJobs(t *testing.T) {
 		t.Fatalf("want DONE with a recent finished_at, got %s %v", status, finishedAt)
 	}
 }
+
+func rowIDs(t *testing.T, db *sql.DB, jobID int64) []int64 {
+	rows, err := db.Query("SELECT id FROM import_rows WHERE job_id = ? ORDER BY line_no", jobID)
+	if err != nil {
+		t.Fatalf("select ids: %v", err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func TestWorkerRowLifecycle(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+	ctx := context.Background()
+	jobID := time.Now().UnixNano()
+	orderID := fmt.Sprintf("W%d", jobID)
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM conversions WHERE order_id = ?", orderID)
+		db.Exec("DELETE FROM import_rows WHERE job_id = ?", jobID)
+	})
+
+	// Two lines with the same order_id, as the gen duplicate scenario, plus one more.
+	order := csvparse.Order{OrderID: orderID, ClickID: "clk_1", CampaignID: 17, Amount: 1000,
+		OrderTime: time.Date(2026, 11, 13, 12, 20, 0, 0, time.UTC)}
+	rows := []Row{{LineNo: 2, RawLine: "a", Order: order}, {LineNo: 3, RawLine: "b", Order: order},
+		{LineNo: 4, RawLine: "c", Order: order}}
+	if _, err := s.InsertRows(ctx, jobID, rows); err != nil {
+		t.Fatalf("insert rows: %v", err)
+	}
+	ids := rowIDs(t, db, jobID)
+
+	first, err := s.GetRow(ctx, ids[0])
+	if err != nil || first.OrderID != orderID || first.Status != RowPending || !first.OrderTime.Equal(order.OrderTime) {
+		t.Fatalf("get row: got %+v, %v", first, err)
+	}
+	if _, err := s.GetRow(ctx, -1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing row: want ErrNotFound, got %v", err)
+	}
+
+	if status, err := s.MarkDone(ctx, first, "cv_1"); err != nil || status != RowDone {
+		t.Fatalf("first MarkDone: want DONE, got %q, %v", status, err)
+	}
+	second, _ := s.GetRow(ctx, ids[1])
+	if status, err := s.MarkDone(ctx, second, "cv_1"); err != nil || status != RowSkipped {
+		t.Fatalf("duplicate order_id: want SKIPPED, got %q, %v", status, err)
+	}
+	// The same message handled again must not change a final row.
+	if _, err := s.MarkDone(ctx, second, "cv_1"); err != nil {
+		t.Fatalf("MarkDone again: %v", err)
+	}
+	if err := s.MarkFailed(ctx, ids[0], "click_expired"); err != nil {
+		t.Fatalf("MarkFailed on done row: %v", err)
+	}
+
+	for _, n := range []int{1, 2} {
+		if got, err := s.IncrementAttempts(ctx, ids[2]); err != nil || got != n {
+			t.Fatalf("attempts: want %d, got %d, %v", n, got, err)
+		}
+	}
+	if err := s.MarkFailed(ctx, ids[2], "max_attempts"); err != nil {
+		t.Fatalf("MarkFailed: %v", err)
+	}
+
+	want := []struct{ status, err string }{{RowDone, ""}, {RowSkipped, "duplicate order_id"}, {RowFailed, "max_attempts"}}
+	for i, w := range want {
+		var status string
+		var errText sql.NullString
+		db.QueryRow("SELECT status, error FROM import_rows WHERE id = ?", ids[i]).Scan(&status, &errText)
+		if status != w.status || errText.String != w.err {
+			t.Errorf("row %d: want %s %q, got %s %q", i, w.status, w.err, status, errText.String)
+		}
+	}
+	var conversions int
+	db.QueryRow("SELECT COUNT(*) FROM conversions WHERE order_id = ?", orderID).Scan(&conversions)
+	if conversions != 1 {
+		t.Fatalf("want exactly 1 conversion for the order, got %d", conversions)
+	}
+}
+
+func TestCampaignStatus(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+	ctx := context.Background()
+	if got, err := s.CampaignStatus(ctx, 1); err != nil || got != "ACTIVE" {
+		t.Fatalf("campaign 1: want ACTIVE, got %q, %v", got, err)
+	}
+	if got, err := s.CampaignStatus(ctx, 10); err != nil || got != CampaignPaused {
+		t.Fatalf("campaign 10: want PAUSED, got %q, %v", got, err)
+	}
+	if _, err := s.CampaignStatus(ctx, 215); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("campaign 215: want ErrNotFound, got %v", err)
+	}
+}

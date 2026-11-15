@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -22,6 +23,10 @@ type Config struct {
 	PubSubSubscription string
 	RelayBatchSize     int
 	RelayInterval      time.Duration
+
+	PlatformURL          string
+	MaxAttempts          int
+	WorkerMaxOutstanding int
 }
 
 // maxImportBatchSize keeps one batch INSERT under MySQL's limit of 65535
@@ -41,6 +46,11 @@ func Load() (Config, error) {
 		PubSubProjectID:    stringOr("PUBSUB_PROJECT_ID", "demo"),
 		PubSubTopic:        stringOr("PUBSUB_TOPIC", "rows-to-process"),
 		PubSubSubscription: stringOr("PUBSUB_SUBSCRIPTION", "rows-worker"),
+		PlatformURL:        stringOr("PLATFORM_URL", "http://wiremock:8080"),
+	}
+	// A bad URL would only show up as failed calls on every row, so reject it now.
+	if u, err := url.Parse(cfg.PlatformURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return Config{}, fmt.Errorf("PLATFORM_URL must be an http(s) URL, got %q", cfg.PlatformURL)
 	}
 
 	var err error
@@ -63,6 +73,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("RELAY_BATCH_SIZE must be at most %d, got %d", maxRelayBatchSize, cfg.RelayBatchSize)
 	}
 	if cfg.RelayInterval, err = positiveDuration("RELAY_INTERVAL", time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxAttempts, err = positiveInt("MAX_ATTEMPTS", 5); err != nil {
+		return Config{}, err
+	}
+	if cfg.WorkerMaxOutstanding, err = positiveInt("WORKER_MAX_OUTSTANDING", 100); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
