@@ -54,6 +54,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"zero", "IMPORT_PARSERS", "0", `IMPORT_PARSERS must be a positive integer, got "0"`},
 		{"negative", "IMPORT_BATCH_SIZE", "-5", `IMPORT_BATCH_SIZE must be a positive integer, got "-5"`},
 		{"decimal", "MYSQL_MAX_OPEN_CONNS", "1.5", `MYSQL_MAX_OPEN_CONNS must be a positive integer, got "1.5"`},
+		{"batch over placeholder limit", "IMPORT_BATCH_SIZE", "6554", "IMPORT_BATCH_SIZE must be at most 6553, got 6554"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -63,5 +64,14 @@ func TestLoadInvalid(t *testing.T) {
 				t.Fatalf("want error %q, got %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestLoadBatchSizeAtLimit(t *testing.T) {
+	t.Setenv("IMPORT_BATCH_SIZE", "6553")
+
+	got, err := Load()
+	if err != nil || got.ImportBatchSize != 6553 {
+		t.Fatalf("want 6553, nil; got %d, %v", got.ImportBatchSize, err)
 	}
 }

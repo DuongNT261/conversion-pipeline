@@ -16,6 +16,10 @@ type Config struct {
 	ImportParsers     int
 }
 
+// maxImportBatchSize keeps one batch INSERT under MySQL's limit of 65535
+// placeholders: each import_rows line uses 10 of them.
+const maxImportBatchSize = 65535 / 10
+
 // Load reads and validates the settings once at startup, so a bad value stops
 // the program before it touches any data.
 func Load() (Config, error) {
@@ -26,6 +30,9 @@ func Load() (Config, error) {
 	batchSize, err := positiveInt("IMPORT_BATCH_SIZE", 500)
 	if err != nil {
 		return Config{}, err
+	}
+	if batchSize > maxImportBatchSize {
+		return Config{}, fmt.Errorf("IMPORT_BATCH_SIZE must be at most %d, got %d", maxImportBatchSize, batchSize)
 	}
 	parsers, err := positiveInt("IMPORT_PARSERS", 4)
 	if err != nil {
