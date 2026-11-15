@@ -429,3 +429,50 @@ func TestCampaignStatus(t *testing.T) {
 		t.Fatalf("campaign 215: want ErrNotFound, got %v", err)
 	}
 }
+
+func TestGetJobReport(t *testing.T) {
+	db := openTestDB(t)
+	s := New(db)
+	ctx := context.Background()
+
+	sha := fmt.Sprintf("%064d", time.Now().UnixNano())
+	job, err := s.FindOrCreateJob(ctx, "orders.csv", sha)
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	orderID := fmt.Sprintf("R%d", job.ID)
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM conversions WHERE order_id = ?", orderID)
+		db.Exec("DELETE FROM import_rows WHERE job_id = ?", job.ID)
+		db.Exec("DELETE FROM import_jobs WHERE id = ?", job.ID)
+	})
+	order := csvparse.Order{OrderID: orderID, ClickID: "clk", CampaignID: 1, Amount: 1,
+		OrderTime: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}
+	rows := []Row{{LineNo: 2, RawLine: "a", Order: order}, {LineNo: 3, RawLine: "b", Order: order},
+		{LineNo: 4, RawLine: "c", Err: "missing click_id"}}
+	if _, err := s.InsertRows(ctx, job.ID, rows); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := s.MarkJobImported(ctx, job.ID, 3); err != nil {
+		t.Fatalf("mark imported: %v", err)
+	}
+	ids := rowIDs(t, db, job.ID)
+	first, _ := s.GetRow(ctx, ids[0])
+	s.MarkDone(ctx, first, "cv_x")
+	s.MarkFailed(ctx, ids[1], "click_expired")
+
+	if latest, err := s.LatestJobID(ctx); err != nil || latest < job.ID {
+		t.Fatalf("latest job: want >= %d, got %d, %v", job.ID, latest, err)
+	}
+	r, err := s.GetJobReport(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if r.Status != JobProcessing || r.TotalRows != 3 || r.ByStatus[RowDone] != 1 || r.ByStatus[RowFailed] != 1 ||
+		r.ByStatus["INVALID"] != 1 || r.FailReasons["click_expired"] != 1 || r.Conversions != 1 || r.FinishedAt.Valid {
+		t.Fatalf("unexpected report: %+v", r)
+	}
+	if _, err := s.GetJobReport(ctx, -1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing job: want ErrNotFound, got %v", err)
+	}
+}

@@ -1,3 +1,33 @@
+# Settings shared by the application services (docs/01 section 7). The
+# ${VAR:-default} form lets one command override a value, for example
+# RATE_LIMIT_ENABLED=false docker compose up -d. Careful: a variable exported in
+# your shell for `go run` (MYSQL_DSN=...localhost...) also wins here.
+# Local overrides go in .env (see .env.example); compose reads it by itself.
+x-app-env: &app-env
+  MYSQL_DSN: ${MYSQL_DSN:-app:app@tcp(mysql:3306)/pipeline?parseTime=true}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+  PUBSUB_EMULATOR_HOST: ${PUBSUB_EMULATOR_HOST:-pubsub:8085}
+  PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-demo}
+  PUBSUB_TOPIC: ${PUBSUB_TOPIC:-rows-to-process}
+  PUBSUB_SUBSCRIPTION: ${PUBSUB_SUBSCRIPTION:-rows-worker}
+  IMPORT_BATCH_SIZE: ${IMPORT_BATCH_SIZE:-500}
+  IMPORT_PARSERS: ${IMPORT_PARSERS:-4}
+  RELAY_BATCH_SIZE: ${RELAY_BATCH_SIZE:-500}
+  RELAY_INTERVAL: ${RELAY_INTERVAL:-1s}
+  PLATFORM_URL: ${PLATFORM_URL:-http://wiremock:8080}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-200}
+  CACHE_TTL: ${CACHE_TTL:-10m}
+  WORKER_MAX_OUTSTANDING: ${WORKER_MAX_OUTSTANDING:-100}
+  MAX_ATTEMPTS: ${MAX_ATTEMPTS:-5}
+
+# One image for every program; services only differ by entrypoint (docs/01 section 9.2).
+x-app: &app
+  build: .
+  image: conversion-pipeline-app
+  environment: *app-env
+
 services:
   mysql:
     image: mysql:8.4
@@ -9,7 +39,7 @@ services:
     volumes:
       - ./migrations:/docker-entrypoint-initdb.d:ro
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3306}:3306"
     healthcheck:
       # TCP (127.0.0.1) instead of the socket: during init MySQL runs a temporary
       # server without networking, so this only passes once the migrations are done.
@@ -21,17 +51,60 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
 
   pubsub:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
     command: gcloud beta emulators pubsub start --project=demo --host-port=0.0.0.0:8085
     ports:
-      - "8085:8085"
+      - "${PUBSUB_HOST_PORT:-8085}:8085"
 
   wiremock:
     image: wiremock/wiremock:3.9.1
     volumes:
       - ./wiremock/mappings:/home/wiremock/mappings:ro
     ports:
-      - "8080:8080"
+      - "${WIREMOCK_HOST_PORT:-8080}:8080"
+
+  relay:
+    <<: *app
+    entrypoint: ["/app/relay"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      pubsub:
+        condition: service_started
+
+  # No container_name and no ports, so `--scale worker=3` can start copies.
+  worker:
+    <<: *app
+    entrypoint: ["/app/worker"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      pubsub:
+        condition: service_started
+      redis:
+        condition: service_started
+      wiremock:
+        condition: service_started
+
+  # profiles: ["tools"] keeps these out of `docker compose up`; they only run
+  # with `docker compose run --rm importer ...` and `... report`.
+  importer:
+    <<: *app
+    entrypoint: ["/app/importer"]
+    profiles: ["tools"]
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  report:
+    <<: *app
+    entrypoint: ["/app/report"]
+    profiles: ["tools"]
+    depends_on:
+      mysql:
+        condition: service_healthy

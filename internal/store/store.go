@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql" // also registers the "mysql" driver for sql.Open
 
 	"github.com/duongnt261/conversion-pipeline/internal/csvparse"
 )
@@ -28,6 +28,7 @@ const (
 	RowDone      = "DONE"
 	RowSkipped   = "SKIPPED"
 	RowFailed    = "FAILED"
+	RowInvalid   = "INVALID"
 )
 
 const CampaignPaused = "PAUSED"
@@ -47,6 +48,31 @@ type Store struct {
 
 func New(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// pingTimeout bounds the startup check, so a wrong address stops the program
+// with a clear error instead of hanging (docs/03 section 8).
+const pingTimeout = 30 * time.Second
+
+// Open creates the single *sql.DB of a process with the pool settings of
+// docs/03 section 5, and checks the connection: sql.Open itself does not
+// connect, so a wrong DSN would otherwise only fail on the first query.
+func Open(ctx context.Context, dsn string, maxOpenConns int) (*sql.DB, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping db: %w", err)
+	}
+	return db, nil
 }
 
 // FindOrCreateJob returns the job for this file content (IMP-1, IMP-2).
@@ -126,9 +152,9 @@ func (s *Store) InsertRows(ctx context.Context, jobID int64, rows []Row) (int64,
 
 		if r.Err == "" {
 			o := r.Order
-			args = append(args, jobID, r.LineNo, o.OrderID, o.ClickID, o.CampaignID, o.Amount, o.OrderTime, r.RawLine, "PENDING", nil)
+			args = append(args, jobID, r.LineNo, o.OrderID, o.ClickID, o.CampaignID, o.Amount, o.OrderTime, r.RawLine, RowPending, nil)
 		} else {
-			args = append(args, jobID, r.LineNo, nil, nil, nil, nil, nil, r.RawLine, "INVALID", r.Err)
+			args = append(args, jobID, r.LineNo, nil, nil, nil, nil, nil, r.RawLine, RowInvalid, r.Err)
 		}
 	}
 
@@ -365,4 +391,84 @@ func (s *Store) IncrementAttempts(ctx context.Context, rowID int64) (int, error)
 		return 0, fmt.Errorf("commit attempts row=%d: %w", rowID, err)
 	}
 	return attempts, nil
+}
+
+// JobReport is what the report prints about one job (docs/01 section 6.5).
+type JobReport struct {
+	ID          int64
+	FileName    string
+	Status      string
+	CreatedAt   time.Time
+	FinishedAt  sql.NullTime
+	TotalRows   int
+	ByStatus    map[string]int // row count per status
+	FailReasons map[string]int // FAILED row count per error
+	Conversions int            // conversions recorded for this job's rows
+}
+
+// LatestJobID returns the newest job, or ErrNotFound when there is none.
+func (s *Store) LatestJobID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, "SELECT id FROM import_jobs ORDER BY id DESC LIMIT 1").Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("latest job: %w", err)
+	}
+	return id, nil
+}
+
+// GetJobReport reads the job and counts its rows. Every query is a GROUP BY on
+// an indexed column, so it stays fast on a large job.
+func (s *Store) GetJobReport(ctx context.Context, jobID int64) (JobReport, error) {
+	r := JobReport{ID: jobID}
+	err := s.db.QueryRowContext(ctx,
+		"SELECT file_name, status, created_at, finished_at, total_rows FROM import_jobs WHERE id = ?", jobID).
+		Scan(&r.FileName, &r.Status, &r.CreatedAt, &r.FinishedAt, &r.TotalRows)
+	if errors.Is(err, sql.ErrNoRows) {
+		return JobReport{}, ErrNotFound
+	}
+	if err != nil {
+		return JobReport{}, fmt.Errorf("get job %d: %w", jobID, err)
+	}
+
+	if r.ByStatus, err = s.countBy(ctx,
+		"SELECT status, COUNT(*) FROM import_rows WHERE job_id = ? GROUP BY status", jobID); err != nil {
+		return JobReport{}, err
+	}
+	if r.FailReasons, err = s.countBy(ctx,
+		"SELECT error, COUNT(*) FROM import_rows WHERE job_id = ? AND status = 'FAILED' GROUP BY error", jobID); err != nil {
+		return JobReport{}, err
+	}
+	err = s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM conversions c JOIN import_rows r ON r.id = c.row_id WHERE r.job_id = ?", jobID).
+		Scan(&r.Conversions)
+	if err != nil {
+		return JobReport{}, fmt.Errorf("count conversions job=%d: %w", jobID, err)
+	}
+	return r, nil
+}
+
+// countBy runs a "SELECT key, COUNT(*) ... GROUP BY key" query into a map.
+func (s *Store) countBy(ctx context.Context, query string, jobID int64) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, query, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("count rows job=%d: %w", jobID, err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var key string
+		var n int
+		if err := rows.Scan(&key, &n); err != nil {
+			return nil, fmt.Errorf("scan count job=%d: %w", jobID, err)
+		}
+		counts[key] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read counts job=%d: %w", jobID, err)
+	}
+	return counts, nil
 }

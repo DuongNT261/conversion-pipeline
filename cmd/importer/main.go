@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -13,9 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
-	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/duongnt261/conversion-pipeline/internal/config"
 	"github.com/duongnt261/conversion-pipeline/internal/source"
@@ -47,18 +43,11 @@ func main() {
 }
 
 func run(ctx context.Context, logger *slog.Logger, cfg config.Config, name string) error {
-	db, err := sql.Open("mysql", cfg.MySQLDSN)
+	db, err := store.Open(ctx, cfg.MySQLDSN, cfg.MySQLMaxOpenConns)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return err
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(cfg.MySQLMaxOpenConns)
-	db.SetMaxIdleConns(cfg.MySQLMaxOpenConns)
-	db.SetConnMaxLifetime(5 * time.Minute)
-	// sql.Open does not connect; fail now if the DSN or MySQL is wrong.
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
-	}
 	st := store.New(db)
 	var src source.Source = source.Local{}
 
