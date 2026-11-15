@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/duongnt261/conversion-pipeline/internal/csvparse"
 	"github.com/duongnt261/conversion-pipeline/internal/store"
@@ -29,20 +30,6 @@ type line struct {
 	record []string
 }
 
-// firstError keeps the first failure of any stage and cancels all the others.
-type firstError struct {
-	once   sync.Once
-	err    error
-	cancel context.CancelFunc
-}
-
-func (f *firstError) set(err error) {
-	f.once.Do(func() {
-		f.err = err
-		f.cancel()
-	})
-}
-
 // runPipeline streams the file through 1 reader, `parsers` parsers and 1 writer
 // (IMP-3, IMP-4). It returns the number of data lines and of newly inserted rows.
 func runPipeline(ctx context.Context, src io.Reader, db rowInserter, jobID int64, parsers, batchSize int) (int, int64, error) {
@@ -50,54 +37,44 @@ func runPipeline(ctx context.Context, src io.Reader, db rowInserter, jobID int64
 	// collected rows saved before exit.
 	writeCtx := context.WithoutCancel(ctx)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	fail := &firstError{cancel: cancel}
+	// The first stage to return an error cancels ctx for all the others,
+	// and Wait returns that first error.
+	g, ctx := errgroup.WithContext(ctx)
 
 	lines := make(chan line, channelBuffer)
 	rows := make(chan store.Row, channelBuffer)
 
 	var total int
 	var inserted int64
-	var readerAndWriter, parserGroup sync.WaitGroup
 
-	readerAndWriter.Add(2)
-	go func() {
-		defer readerAndWriter.Done()
+	g.Go(func() error {
 		defer close(lines) // the reader is the only sender on lines
 		n, err := readLines(ctx, src, lines)
-		if err != nil {
-			fail.set(err)
-			return
-		}
 		total = n
-	}()
+		return err
+	})
 
-	parserGroup.Add(parsers)
-	for i := 0; i < parsers; i++ {
-		go func() {
-			defer parserGroup.Done()
-			parseLines(ctx, lines, rows)
-		}()
-	}
-	// rows has several senders, so it is closed only after all of them are done.
-	go func() {
-		parserGroup.Wait()
-		close(rows)
-	}()
-
-	go func() {
-		defer readerAndWriter.Done()
-		n, err := writeRows(writeCtx, db, jobID, batchSize, rows)
-		if err != nil {
-			fail.set(err)
+	// rows has several senders, so this stage closes it only after all parsers are done.
+	g.Go(func() error {
+		defer close(rows)
+		var parserGroup errgroup.Group
+		for i := 0; i < parsers; i++ {
+			parserGroup.Go(func() error {
+				parseLines(ctx, lines, rows)
+				return nil
+			})
 		}
-		inserted = n
-	}()
+		return parserGroup.Wait()
+	})
 
-	readerAndWriter.Wait()
-	if fail.err != nil {
-		return 0, inserted, fail.err
+	g.Go(func() error {
+		n, err := writeRows(writeCtx, db, jobID, batchSize, rows)
+		inserted = n
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
+		return 0, inserted, err
 	}
 	return total, inserted, nil
 }
