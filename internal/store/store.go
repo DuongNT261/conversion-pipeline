@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 
@@ -19,6 +20,20 @@ const (
 	JobProcessing = "PROCESSING"
 	JobDone       = "DONE"
 )
+
+// Row statuses (docs/01 section 5.2). DONE, SKIPPED, FAILED and INVALID are final.
+const (
+	RowPending   = "PENDING"
+	RowPublished = "PUBLISHED"
+	RowDone      = "DONE"
+	RowSkipped   = "SKIPPED"
+	RowFailed    = "FAILED"
+)
+
+const CampaignPaused = "PAUSED"
+
+// ErrNotFound hides sql.ErrNoRows from the callers (docs/03 section 2).
+var ErrNotFound = errors.New("not found")
 
 type Job struct {
 	ID     int64
@@ -221,4 +236,133 @@ func (s *Store) FinishJobs(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("finish jobs rows affected: %w", err)
 	}
 	return finished, nil
+}
+
+// WorkRow is what the worker needs from a PENDING or PUBLISHED row.
+type WorkRow struct {
+	ID         int64
+	JobID      int64
+	OrderID    string
+	ClickID    string
+	CampaignID int64
+	Amount     int64
+	OrderTime  time.Time
+	Status     string
+}
+
+// GetRow reads one row by id (WRK-1). The parsed columns are NULL only on
+// INVALID rows, which never get a message, so COALESCE just keeps Scan simple.
+// order_time is read as sql.NullTime instead: COALESCE with a string literal
+// would turn the DATETIME into a string that cannot be scanned into time.Time.
+func (s *Store) GetRow(ctx context.Context, id int64) (WorkRow, error) {
+	var r WorkRow
+	var orderTime sql.NullTime
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, job_id, COALESCE(order_id, ''), COALESCE(click_id, ''), COALESCE(campaign_id, 0),
+		        COALESCE(amount, 0), order_time, status
+		 FROM import_rows WHERE id = ?`, id).
+		Scan(&r.ID, &r.JobID, &r.OrderID, &r.ClickID, &r.CampaignID, &r.Amount, &orderTime, &r.Status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkRow{}, ErrNotFound
+	}
+	if err != nil {
+		return WorkRow{}, fmt.Errorf("get row %d: %w", id, err)
+	}
+	r.OrderTime = orderTime.Time
+	return r, nil
+}
+
+// CampaignStatus returns ACTIVE or PAUSED, or ErrNotFound (WRK-3).
+func (s *Store) CampaignStatus(ctx context.Context, id int64) (string, error) {
+	var status string
+	err := s.db.QueryRowContext(ctx, "SELECT status FROM campaigns WHERE id = ?", id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get campaign %d: %w", id, err)
+	}
+	return status, nil
+}
+
+// MarkDone saves an accepted conversion and finishes the row in one
+// transaction (WRK-7). A duplicate order_id (1062) means another row already
+// reported this order, so this row becomes SKIPPED instead. It returns the
+// status it wrote.
+func (s *Store) MarkDone(ctx context.Context, row WorkRow, conversionID string) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() // no-op after a successful Commit
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO conversions (order_id, row_id, click_id, campaign_id, amount, platform_ref)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		row.OrderID, row.ID, row.ClickID, row.CampaignID, row.Amount, conversionID)
+	status, reason := RowDone, ""
+	if isDuplicate(err) {
+		// InnoDB only undoes the failed statement, so the transaction goes on.
+		status, reason = RowSkipped, "duplicate order_id"
+	} else if err != nil {
+		return "", fmt.Errorf("insert conversion row=%d: %w", row.ID, err)
+	}
+
+	if err := finishRow(ctx, tx, row.ID, status, reason); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit row=%d: %w", row.ID, err)
+	}
+	return status, nil
+}
+
+// MarkFailed finishes the row as FAILED with the reason in error (WRK-3, 8, 9).
+func (s *Store) MarkFailed(ctx context.Context, rowID int64, reason string) error {
+	return finishRow(ctx, s.db, rowID, RowFailed, reason)
+}
+
+// execer is what *sql.DB and *sql.Tx have in common, so finishRow works inside
+// and outside a transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// finishRow only changes a row that is not final yet: when the same message is
+// handled twice at once, the second result can never overwrite the first.
+func finishRow(ctx context.Context, db execer, rowID int64, status, reason string) error {
+	var errorValue any // NULL for DONE
+	if reason != "" {
+		errorValue = reason
+	}
+	_, err := db.ExecContext(ctx,
+		"UPDATE import_rows SET status = ?, error = ? WHERE id = ? AND status IN (?, ?)",
+		status, errorValue, rowID, RowPending, RowPublished)
+	if err != nil {
+		return fmt.Errorf("set row %d %s: %w", rowID, status, err)
+	}
+	return nil
+}
+
+// IncrementAttempts adds one temporary failure and returns the new count (WRK-9).
+// The UPDATE locks the row, so the SELECT in the same transaction reads our own
+// value even when another worker is retrying the same row.
+func (s *Store) IncrementAttempts(ctx context.Context, rowID int64) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "UPDATE import_rows SET attempts = attempts + 1 WHERE id = ?", rowID); err != nil {
+		return 0, fmt.Errorf("increment attempts row=%d: %w", rowID, err)
+	}
+	var attempts int
+	if err := tx.QueryRowContext(ctx, "SELECT attempts FROM import_rows WHERE id = ?", rowID).Scan(&attempts); err != nil {
+		return 0, fmt.Errorf("read attempts row=%d: %w", rowID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit attempts row=%d: %w", rowID, err)
+	}
+	return attempts, nil
 }
