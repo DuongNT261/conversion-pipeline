@@ -1,0 +1,12 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "url": "/v1/conversions"
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "error": "missing_idempotency_key" }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/v1/conversions",
+    "bodyPatterns": [
+      { "matchesJsonPath": { "expression": "$.click_id", "matches": "^clk_err.*" } }
+    ]
+  },
+  "response": {
+    "status": 500,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "error": "internal" }
+  }
+}

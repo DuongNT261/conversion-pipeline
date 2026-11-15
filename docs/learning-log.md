@@ -8,6 +8,8 @@ Mỗi dòng ghi một khái niệm đã hiểu và tự dùng được trong cod
 | 2026-11-15 | `cmd/gen` | Dữ liệu test phải khớp thứ tự xử lý của hệ thống | Dòng `INVALID` dừng ở importer, không tới worker. Worker kiểm tra campaign trước rồi mới gọi API, nên dòng `clk_old`, `clk_err` và dòng trùng cần campaign tồn tại (1–200) thì mới ra đúng kết quả mong đợi |
 | 2026-11-15 | `internal/csvparse` | Pure function và data race; `string` tính theo byte (`len`) hay theo rune (`utf8.RuneCountInString`) | Hàm không ghi vào vùng nhớ chung thì gọi song song an toàn. Bỏ lỗi gốc của `strconv`/`time` để thông báo lưu trong DB ngắn và ổn định |
 | 2026-11-15 | `internal/csvparse` | `time.Time`: `==` và `Equal`; MySQL `DATETIME` | `==` so cả múi giờ, `Equal` chỉ so thời điểm. `DATETIME` không lưu múi giờ; driver chuyển theo `loc` của DSN (mặc định UTC), nên mọi service phải dùng chung DSN |
+| 2026-11-15 | `internal/csvparse` | `strconv.ParseInt(s, base, bitSize)` | `base` là cơ số, `bitSize` là kiểu đích; tràn số thì trả `ErrRange`, không cắt bớt. **Cần ôn:** đọc `go doc` trước khi đoán tham số |
+| 2026-11-15 | `internal/csvparse` | Sentinel error, `%w`, `errors.Is` (chưa dùng) | Không so `err.Error()`; khai báo `var ErrX = errors.New(...)`, bọc bằng `%w`, kiểm tra bằng `errors.Is`. Sẽ gặp lại ở `store` (`ErrDuplicate`) |
 
 ## Câu hỏi còn mở
 
