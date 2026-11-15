@@ -4,6 +4,12 @@ data/*
 
 # Binary và file build
 /bin/
+# go build ./cmd/<name> puts the binary at the repo root
+/gen
+/importer
+/relay
+/worker
+/report
 *.exe
 *.test
 *.out
