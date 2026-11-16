@@ -83,11 +83,12 @@ flowchart LR
 | Quy ước code | `docs/03`, được import vào `CLAUDE.md` | Claude luôn biết quy tắc đa luồng, `database/sql`, log, test, Git |
 | Skill `/review` | `.claude/skills/review/` | Review code chưa commit, chạy `gofmt`, `go vet`, `go test -race`, gợi ý bằng câu hỏi |
 | Skill `/quiz` | `.claude/skills/quiz/` | 4 câu hỏi kiểu phỏng vấn từ chính code vừa viết, chấm và đưa câu trả lời mẫu |
+| Skill `/ask` | `.claude/skills/ask/` | Hỏi đáp nhanh về source: chỗ nào làm gì, vì sao viết vậy. Trả lời ngắn kèm `file:dòng`, không sửa code |
 | `CLAUDE.local.md` | Gốc repo, bạn tự tạo nếu cần | Ghi chú cá nhân cho Claude, ví dụ "giải thích chậm hơn ở phần channel". Không được commit |
 
 **Những gì Claude Code sẽ không tự làm:** thêm thư viện, dùng ORM, sửa schema hay yêu cầu trong `01`, xoá test, chạy lệnh xoá dữ liệu, commit, push.
 
-**Kiểm tra cài đặt đã nhận:** mở Claude Code trong thư mục repo, gõ `/` để thấy `/review` và `/quiz` trong danh sách lệnh. Hỏi thử: *"Trong repo này bạn đóng vai trò gì và sẽ làm việc với mình theo quy trình nào?"*. Claude phải trả lời đúng vai trò mentor: viết code ngay, giải thích rõ, rồi hỏi bạn chỗ nào chưa rõ.
+**Kiểm tra cài đặt đã nhận:** mở Claude Code trong thư mục repo, gõ `/` để thấy `/review`, `/quiz` và `/ask` trong danh sách lệnh. Hỏi thử: *"Trong repo này bạn đóng vai trò gì và sẽ làm việc với mình theo quy trình nào?"*. Claude phải trả lời đúng vai trò mentor: viết code ngay, giải thích rõ, rồi hỏi bạn chỗ nào chưa rõ.
 
 `CLAUDE.md` là ngữ cảnh, không phải cơ chế bắt buộc. Thỉnh thoảng Claude có thể làm quá phạm vi. Khi đó nhắc lại: *"Theo CLAUDE.md, chỉ viết function X thôi."*
 

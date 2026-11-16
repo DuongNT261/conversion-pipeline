@@ -113,10 +113,11 @@ Kịch bản demo đầy đủ ở mục 10 của `docs/01`.
 
 ## Skill có sẵn
 
-Hai skill chỉ chạy khi người học gọi, Claude không tự kích hoạt:
+Ba skill chỉ chạy khi người học gọi, Claude không tự kích hoạt:
 
 - `/review [file hoặc function]`: review theo `docs/03`, mặc định là các thay đổi chưa commit. Nêu vấn đề kèm cách sửa cụ thể, không tự sửa file.
 - `/quiz [file, function hoặc chủ đề]`: 4 câu hỏi kiểu phỏng vấn dựa trên code vừa viết, chấm và đưa câu trả lời mẫu.
+- `/ask <câu hỏi>`: hỏi đáp nhanh về source (chỗ nào làm gì, vì sao, luồng dữ liệu). Trả lời ngắn, dẫn `file:dòng`, chỉ đọc, không sửa file.
 
 ## Nhật ký học
 
